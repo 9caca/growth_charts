@@ -1,0 +1,6 @@
+The categories that describe a person's weight are:
+
+Underweight: BMI is below the 5th percentile age, gender, and height.
+Healthy weight: BMI is equal to or greater than the 5th percentile and less than the 85th percentile for age, gender, and height.
+Overweight: BMI is at or above the 85th percentile but less than the 95th percentile for age, gender, and height.
+Obese: BMI is at or above the 95th percentile for age, gender, and height.

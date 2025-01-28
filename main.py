@@ -3,26 +3,23 @@ import streamlit as st
 import plotly_express as px
 import plotly.graph_objects as go
 from datetime import datetime
+from streamlit_card import card
+
+#Definir a largura do dashboard para largura total da tela
+st.set_page_config(layout="wide")
 
 # Datas de nascimento
 nina_birthdate = datetime(2020, 8, 17)
 mariana_birthdate = datetime(2018, 3, 18)
 
-#Definir a largura do dashboard para largura total da tela
-st.set_page_config(layout="wide")
-
+#Importar os dados
 altura_df = pd.read_csv("stature.csv")
 altura_df = altura_df[altura_df['Sex'] == 2]
 bmi_df = pd.read_csv("bmi.csv")
+bmi_df = bmi_df[bmi_df['Sex'] == 2]
 weight_df = pd.read_csv("weight.csv")
 weight_df = weight_df[weight_df['Sex'] == 2]
 weight_df = weight_df.round(2)
-
-# Menu lateral
-st.sidebar.title("Opções")
-selected_child = st.sidebar.selectbox("Selecione a criança:", ["Mariana", "Nina"])
-file_name = "mariana_peso.csv" if selected_child == "Mariana" else "nina_peso.csv"
-birthdate = mariana_birthdate if selected_child == "Mariana" else nina_birthdate
 
 # Transformar a idade de meses para anos e meses
 def agemos_to_years_months(agemos):
@@ -30,7 +27,13 @@ def agemos_to_years_months(agemos):
     months = int(agemos % 12)
     return f"{years}y {months}m"
 
-weight_df['Age (years)'] = weight_df['Agemos'].apply(agemos_to_years_months)
+weight_df['Age (years)'] = weight_df['agemos'].apply(agemos_to_years_months)
+
+# Menu lateral
+st.sidebar.title("Opções")
+selected_child = st.sidebar.selectbox("Selecione a criança:", ["Mariana", "Nina"])
+file_name = "mariana_peso.csv" if selected_child == "Mariana" else "nina_peso.csv"
+birthdate = mariana_birthdate if selected_child == "Mariana" else nina_birthdate
 
 # Dicionário de cores para os percentis
 colors = {
@@ -66,9 +69,19 @@ if st.sidebar.button("Salvar"):
         
         # Calcular idade em meses
         age_months = round((input_date - birthdate).days / 30.4375)
+
+        # Calcular BMI
+        bmi = round(input_weight / (input_stature / 100) ** 2, 2) if input_stature > 0 else None  # Evitar divisão por zero
         
         # Adicionar entrada ao arquivo CSV
-        new_data = pd.DataFrame({"Date": [input_date], "agemos": [age_months], "Weight": [input_weight], "stature": [input_stature]})
+        new_data = pd.DataFrame({
+            "Date": [input_date],
+            "agemos": [age_months],
+            "Weight": [input_weight],
+            "stature": [input_stature],
+            "BMI": [bmi],
+            "Child": [selected_child]
+        })
         try:
             existing_data = pd.read_csv(file_name)
             updated_data = pd.concat([existing_data, new_data])
@@ -76,7 +89,7 @@ if st.sidebar.button("Salvar"):
             updated_data = new_data
         
         updated_data.to_csv(file_name, index=False)
-        st.sidebar.success(f"Dados salvos para {selected_child}!")
+        st.sidebar.success(f"Dados salvos para {selected_child} com BMI: {bmi}")
     except Exception as e:
         st.sidebar.error(f"Erro ao salvar os dados: {e}")
 
@@ -84,11 +97,65 @@ if st.sidebar.button("Salvar"):
 try:
     child_data = pd.read_csv(file_name)
     if child_data.empty:
-        child_data = pd.DataFrame(columns=["Date", "agemos", "Weight", "stature"])
+        child_data = pd.DataFrame(columns=["Date", "agemos", "Weight", "stature", "BMI"])
 except (FileNotFoundError, pd.errors.EmptyDataError):
-    child_data = pd.DataFrame(columns=["Date", "agemos", "Weight", "stature"])
+    child_data = pd.DataFrame(columns=["Date", "agemos", "Weight", "stature", "BMI"])
 
 child_data['Age (formatted)'] = child_data['agemos'].apply(agemos_to_years_months)
+child_data['Date'] = pd.to_datetime(child_data['Date'])
+latest_row = child_data.loc[child_data['Date'].idxmax()]
+
+# Extrair os dados mais recentes
+current_date = latest_row['Date'].strftime("%d/%m/%Y")
+current_weight = latest_row['Weight']
+current_stature = latest_row['stature']
+current_bmi = latest_row['BMI']
+
+# Definir a categoria com base no BMI
+def define_bmi_category(bmi, agemos, sex, bmi_df):
+    row = bmi_df[(bmi_df['agemos'] == agemos) & (bmi_df['Sex'] == sex)]
+    if not row.empty:
+        p5 = row['P5'].values[0]
+        p85 = row['P85'].values[0]
+        p95 = row['P95'].values[0]
+        if bmi < p5:
+            return "Underweight"
+        elif 5 <= bmi < p85:
+            return "Healthy weight"
+        elif p85 <= bmi < p95:
+            return "Overweight"
+        else:
+            return "Obese"
+    return "Unknown"
+
+bmi_df['agemos'] = bmi_df['agemos'].astype(float).round(1)
+child_data['agemos'] = child_data['agemos'].astype(float).round(1)
+
+# Carregar os dados de referência de BMI
+bmi_df = pd.read_csv("bmi.csv")
+
+# Definir o sexo da criança (1 = menina, no dataset de BMI)
+sex = 2
+bmi_category = define_bmi_category(current_bmi, latest_row['agemos'], sex, bmi_df)
+
+# Layout dos cards com Streamlit
+st.write("### Informações mais recentes")
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.write("**Peso e Altura**")
+    st.write(f"Peso: {current_weight} kg")
+    st.write(f"Altura: {current_stature} cm")
+
+with col2:
+    st.write("**BMI**")
+    st.write(f"BMI: {current_bmi}")
+
+with col3:
+    st.write("**Categoria**")
+    st.write(f"{bmi_category}")
+
+
 # Criar o gráfico
 fig_weight = go.Figure()
 
@@ -131,8 +198,8 @@ fig_weight.update_layout(
 # Exibir o gráfico
 st.plotly_chart(fig_weight)
 
-altura_df['Age (years)'] = altura_df['Agemos'].apply(agemos_to_years_months)
-child_data['Age (formatted)'] = child_data['agemos'].apply(agemos_to_years_months)
+altura_df['Age (years)'] = altura_df['agemos'].apply(agemos_to_years_months)
+#child_data['Age (formatted)'] = child_data['agemos'].apply(agemos_to_years_months)
 
 # Criar o gráfico
 fig_stature = go.Figure()
